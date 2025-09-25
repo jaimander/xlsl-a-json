@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Conversor Excel → JSON</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- SheetJS (XLSX) para leer Excel en el navegador -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    :root{
+      --bg:#0b1020; --card:#121933; --muted:#9fb0d6; --text:#e9efff; --accent:#6ea8fe; --border:#22305e;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0; font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto; background:radial-gradient(1200px 600px at 20% -10%, #1a2458 0%, #0b1020 60%), var(--bg); color:var(--text)}
+    .container{max-width:1100px; margin:40px auto; padding:0 20px}
+    .title{font-weight:700; font-size:clamp(22px, 3.4vw, 34px); letter-spacing:.2px; margin:0 0 8px}
+    .subtitle{color:var(--muted); margin:0 0 24px}
+    .grid{display:grid; grid-template-columns:1fr; gap:18px}
+    @media(min-width:980px){.grid{grid-template-columns:360px 1fr}}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border:1px solid var(--border); border-radius:16px; padding:18px; box-shadow:0 10px 40px rgba(0,0,0,.25)}
+    .drop{display:flex; align-items:center; justify-content:center; text-align:center; border:2px dashed #3952a3; border-radius:16px; padding:26px; cursor:pointer; transition:.25s ease; background:rgba(255,255,255,0.02)}
+    .drop:hover{background:rgba(255,255,255,0.04)}
+    .drop.dragover{border-color:var(--accent); background:rgba(110,168,254,.12)}
+    .hint{font-size:13px; color:var(--muted)}
+    .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+    .row > *{flex:1}
+    label.small{font-size:13px; color:var(--muted)}
+    select, input[type="checkbox"]{accent-color:var(--accent)}
+    select, button, input[type="file" i]{background:#0f1730; color:var(--text); border:1px solid var(--border); border-radius:12px; padding:10px 12px; font:inherit}
+    button{cursor:pointer; font-weight:600; transition:.2s ease; box-shadow:0 6px 18px rgba(0,0,0,.25)}
+    button.primary{background:linear-gradient(180deg, #3a63ff, #2146d8); border-color:#2a46b3}
+    button.ghost{background:transparent}
+    button:disabled{opacity:.5; cursor:not-allowed}
+    .stats{font-size:13px; color:var(--muted)}
+    textarea{width:100%; min-height:360px; background:#0a1228; color:#dfe8ff; border:1px solid var(--border); border-radius:12px; padding:12px; font:12px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; resize:vertical}
+    .badge{display:inline-flex; align-items:center; gap:6px; background:#0a1228; padding:6px 10px; border:1px solid var(--border); border-radius:999px; font-size:12px; color:var(--muted)}
+    .footer{margin-top:12px; font-size:12px; color:var(--muted)}
+    .kbd{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; background:#0a1228; border:1px solid var(--border); padding:2px 6px; border-radius:6px; color:#cfe0ff}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 class="title">Conversor Excel → JSON</h1>
+    <p class="subtitle">Carga un archivo <strong>.xlsx</strong>, <strong>.xls</strong> o <strong>.csv</strong>, elige la hoja, y exporta como JSON. Todo sucede en tu navegador (no se sube a ningún servidor).</p>
+
+    <div class="grid">
+      <!-- Columna izquierda: entrada y opciones -->
+      <section class="card" aria-label="Entrada">
+        <div id="drop" class="drop" tabindex="0" role="button" aria-label="Soltar o seleccionar archivo">
+          <div>
+            <div style="font-weight:600; font-size:16px">Suelta el archivo aquí</div>
+            <div class="hint">o haz clic para buscar</div>
+            <div style="margin-top:10px" class="badge"><span>Formatos</span> <code>.xlsx</code> <code>.xls</code> <code>.csv</code></div>
+          </div>
+          <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" style="display:none" />
+        </div>
+
+        <div style="height:10px"></div>
+        <div class="row">
+          <div>
+            <label class="small" for="sheet">Hoja</label>
+            <select id="sheet" disabled></select>
+          </div>
+          <div>
+            <label class="small" for="dateMode">Fechas</label>
+            <select id="dateMode">
+              <option value="formatted" selected>Formateadas (texto)</option>
+              <option value="raw">Crudas (serial de Excel)</option>
+              <option value="iso">ISO 8601 (YYYY-MM-DD)</option>
+            </select>
+          </div>
+        </div>
+        <div style="height:10px"></div>
+        <div class="row" style="align-items:center">
+          <label class="small" style="flex:0 0 auto"><input type="checkbox" id="hasHeader" checked> Primera fila es encabezado</label>
+          <label class="small" style="flex:0 0 auto"><input type="checkbox" id="minify"> Minificar JSON</label>
+        </div>
+
+        <div style="height:12px"></div>
+        <div class="row">
+          <button id="convert" class="primary" disabled>Convertir</button>
+          <button id="download" class="ghost" disabled>Descargar JSON</button>
+          <button id="copy" class="ghost" disabled>Copiar JSON</button>
+        </div>
+        <div style="height:8px"></div>
+        <div class="stats" id="stats">Sin archivo.</div>
+      </section>
+
+      <!-- Columna derecha: salida -->
+      <section class="card" aria-label="Salida JSON">
+        <div class="row" style="justify-content:space-between; align-items:center">
+          <div style="font-weight:600">Salida</div>
+          <div class="badge"><span id="fileInfo">—</span></div>
+        </div>
+        <div style="height:10px"></div>
+        <textarea id="output" placeholder="Aquí verás el JSON…" spellcheck="false"></textarea>
+        <div class="footer">Tip: presiona <span class="kbd">Ctrl</span> + <span class="kbd">C</span> para copiar cuando el área tenga foco.</div>
+      </section>
+    </div>
+  </div>
+
+<script>
+// Utilidades de UI
+const $ = (s)=>document.querySelector(s);
+const drop = $('#drop');
+const fileInput = $('#fileInput');
+const sheetSelect = $('#sheet');
+const convertBtn = $('#convert');
+const downloadBtn = $('#download');
+const copyBtn = $('#copy');
+const output = $('#output');
+const stats = $('#stats');
+const fileInfo = $('#fileInfo');
+const hasHeader = $('#hasHeader');
+const minify = $('#minify');
+const dateMode = $('#dateMode');
+
+let workbook = null; // XLSX workbook cargado
+let currentFileName = '';
+
+function fmtBytes(bytes){
+  if(!bytes && bytes!==0) return '—';
+  const units=['B','KB','MB','GB'];
+  const i = Math.floor(Math.log(bytes)/Math.log(1024));
+  return `${(bytes/Math.pow(1024,i)).toFixed(1)} ${units[i]}`;
+}
+
+function setStatus(text){ stats.textContent = text; }
+function enableControls(enabled){
+  sheetSelect.disabled = !enabled;
+  convertBtn.disabled = !enabled;
+  downloadBtn.disabled = !enabled || !output.value.length;
+  copyBtn.disabled = !enabled || !output.value.length;
+}
+
+// Drag & drop
+['dragenter','dragover'].forEach(evt=>{
+  drop.addEventListener(evt, e=>{ e.preventDefault(); e.stopPropagation(); drop.classList.add('dragover'); });
+});
+['dragleave','drop'].forEach(evt=>{
+  drop.addEventListener(evt, e=>{ e.preventDefault(); e.stopPropagation(); drop.classList.remove('dragover'); });
+});
+
+drop.addEventListener('click', ()=> fileInput.click());
+drop.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); fileInput.click(); }});
+
+drop.addEventListener('drop', (e)=>{
+  const f = e.dataTransfer.files?.[0];
+  if(f) handleFile(f);
+});
+fileInput.addEventListener('change', (e)=>{
+  const f = e.target.files?.[0];
+  if(f) handleFile(f);
+});
+
+async function handleFile(file){
+  try{
+    currentFileName = file.name || 'datos';
+    setStatus(`Leyendo “${file.name}” (${fmtBytes(file.size)})…`);
+    const buf = await file.arrayBuffer();
+    // Leer con SheetJS; auto-detecta xlsx/xls/csv desde ArrayBuffer
+    workbook = XLSX.read(buf, { type:'array' });
+    populateSheets();
+    setStatus(`Archivo cargado. Hojas: ${workbook.SheetNames.length}. Selecciona una y pulsa Convertir.`);
+    fileInfo.textContent = `${file.name} · ${fmtBytes(file.size)}`;
+    enableControls(true);
+  }catch(err){
+    console.error(err);
+    setStatus('Error leyendo el archivo. ¿Es un Excel/CSV válido?');
+    enableControls(false);
+  }
+}
+
+function populateSheets(){
+  sheetSelect.innerHTML = '';
+  if(!workbook) return;
+  for(const name of workbook.SheetNames){
+    const opt = document.createElement('option');
+    opt.value = name; opt.textContent = name; sheetSelect.appendChild(opt);
+  }
+  if(workbook.SheetNames.length) sheetSelect.value = workbook.SheetNames[0];
+}
+
+function toISODate(excelDate){
+  // Convierte serial de fecha de Excel a string ISO (YYYY-MM-DD)
+  const d = XLSX.SSF.parse_date_code(excelDate);
+  if(!d) return excelDate; // si no es fecha
+  const mm = String(d.m).padStart(2,'0');
+  const dd = String(d.d).padStart(2,'0');
+  return `${d.y}-${mm}-${dd}`;
+}
+
+function convert(){
+  if(!workbook) return;
+  const ws = workbook.Sheets[sheetSelect.value];
+  if(!ws){ setStatus('No se encontró la hoja seleccionada.'); return; }
+
+  const mode = dateMode.value; // formatted | raw | iso
+  const options = { defval: null };
+  // raw:false hace que SheetJS formatee números/fechas según formato de celda
+  options.raw = (mode === 'raw');
+
+  // Determinar si la primera fila es encabezado
+  if(hasHeader.checked){
+    options.header = 1; // primero como matriz para inspeccionar encabezados
+    const rows = XLSX.utils.sheet_to_json(ws, options);
+    if(!rows.length){ output.value = '[]'; setStatus('Hoja vacía.'); return; }
+    const headers = rows[0].map(h => (h==null? 'col_'+Math.random().toString(36).slice(2,6) : String(h).trim()));
+    const dataRows = rows.slice(1);
+
+    // Mapear a objetos
+    const out = dataRows.map(r=>{
+      const obj={};
+      headers.forEach((h,i)=>{
+        let v = r[i] ?? null;
+        if(mode==='iso' && typeof v==='number'){ v = toISODate(v); }
+        obj[h] = v;
+      });
+      return obj;
+    });
+    writeOutput(out);
+  }else{
+    // Sin encabezado: producir matriz de filas
+    const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:null, raw: options.raw });
+    const out = (mode==='iso')
+      ? rows.map(row => row.map(v => (typeof v==='number'? toISODate(v) : v)))
+      : rows;
+    writeOutput(out);
+  }
+}
+
+function writeOutput(obj){
+  const space = minify.checked ? 0 : 2;
+  const json = JSON.stringify(obj, null, space);
+  output.value = json;
+  const count = Array.isArray(obj) ? obj.length : (obj ? 1 : 0);
+  setStatus(`Listo. Elementos: ${count}.`);
+  enableControls(true);
+}
+
+convertBtn.addEventListener('click', convert);
+minify.addEventListener('change', ()=>{ if(output.value) convert(); });
+dateMode.addEventListener('change', ()=>{ if(workbook) convert(); });
+hasHeader.addEventListener('change', ()=>{ if(workbook) convert(); });
+
+copyBtn.addEventListener('click', async ()=>{
+  if(!output.value) return;
+  try{ await navigator.clipboard.writeText(output.value); setStatus('JSON copiado al portapapeles.'); }
+  catch{ setStatus('No se pudo copiar. Selecciona y copia manualmente.'); }
+});
+
+downloadBtn.addEventListener('click', ()=>{
+  if(!output.value) return;
+  const blob = new Blob([output.value], {type:'application/json'});
+  const a = document.createElement('a');
+  const base = currentFileName.replace(/\.[^.]+$/, '');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${base || 'datos'}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setStatus('Descarga iniciada.');
+});
+</script>
+</body>
+</html>
